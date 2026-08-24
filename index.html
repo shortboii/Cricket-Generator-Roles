@@ -16,6 +16,7 @@
       --gold: #d29922;
       --red: #da3633;
       --blue: #1f6beb;
+      --table-row-bg: #0d1117;
     }
 
     body {
@@ -36,6 +37,7 @@
       border-radius: 12px;
       border: 1px solid var(--border);
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      position: relative;
     }
 
     h1 {
@@ -59,6 +61,18 @@
       padding: 20px;
       margin-bottom: 24px;
       text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .scoreboard.score-change .score-display {
+        animation: score-pop 0.3s ease-out;
+    }
+
+    @keyframes score-pop {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
     }
 
     .duo-title {
@@ -80,6 +94,7 @@
       font-weight: 800;
       color: var(--gold);
       letter-spacing: -1px;
+      transition: transform 0.3s ease-out;
     }
 
     .score-controls {
@@ -236,15 +251,104 @@
       color: #58a6ff;
       border: 1px solid #1f6beb44;
     }
+
+    /* Wicket Animation Styles */
+    #wicketAnimation {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px;
+      height: 250px;
+      z-index: 1000;
+    }
+
+    #wicketAnimation .stump {
+      position: absolute;
+      bottom: 0;
+      width: 15px;
+      height: 180px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+    }
+
+    #wicketAnimation .stump.left { left: 50px; }
+    #wicketAnimation .stump.middle { left: 92.5px; }
+    #wicketAnimation .stump.right { left: 135px; }
+
+    #wicketAnimation .bail {
+      position: absolute;
+      top: 50px;
+      width: 45px;
+      height: 10px;
+      background-color: #d0d0d0;
+      border-radius: 2px;
+    }
+
+    #wicketAnimation .bail.left { left: 55px; }
+    #wicketAnimation .bail.right { left: 100px; }
+
+    #wicketAnimation.breaking .stump.middle {
+        animation: stump-middle-break 1s ease-out forwards;
+    }
+
+    #wicketAnimation.breaking .bail.left {
+        animation: bail-left-fly 0.8s ease-out forwards;
+    }
+
+    #wicketAnimation.breaking .bail.right {
+        animation: bail-right-fly 0.8s ease-out forwards;
+    }
+
+    @keyframes stump-middle-break {
+        0% { transform: scaleY(1); opacity: 1; }
+        100% { transform: scaleY(0.1) translateY(100%); opacity: 0; }
+    }
+
+    @keyframes bail-left-fly {
+        0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+        100% { transform: translate(-80px, -150px) rotate(-180deg); opacity: 0; }
+    }
+
+    @keyframes bail-right-fly {
+        0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+        100% { transform: translate(80px, -150px) rotate(180deg); opacity: 0; }
+    }
+
+    /* Confetti (Simplified) */
+    .confetti {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        z-index: 999;
+        border-radius: 50%;
+        opacity: 0;
+    }
+
+    @keyframes confetti-fall {
+        0% { transform: translateY(-100vh); opacity: 1; }
+        100% { transform: translateY(100vh) rotate(360deg); opacity: 0.5; }
+    }
+
+    /* Table row transition */
+    #lineupTable tr {
+        transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out;
+    }
+
+    #lineupTable tr.shuffling {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
   </style>
 </head>
 <body>
 
   <div class="container">
     <h1>🏏 Match Manager</h1>
-    <div class="subtitle">Scoreboard & Live Rotation</div>
+    <div class="subtitle">Scoreboard & Live Rotation (Animated)</div>
 
-    <div class="scoreboard">
+    <div id="scoreboard" class="scoreboard">
       <div class="duo-title">Batting Duo (Batter & Runner)</div>
       <div id="duoNames" class="duo-names">-- & --</div>
       <div id="scoreDisplay" class="score-display">0 - 0</div>
@@ -252,9 +356,17 @@
         <button class="btn-score" onclick="addRuns(1)">+1 Run</button>
         <button class="btn-score" onclick="addRuns(2)">+2 Runs</button>
         <button class="btn-score" onclick="addRuns(4)">+4 Runs</button>
-        <button class="btn-score" onclick="addRuns(6)">+6 Runs</button>
-        <button class="btn-score btn-wicket" onclick="addWicket()">+1 Wicket</button>
+        <button class="btn-score" onclick="addRuns(6)">+6 Runs (Confetti!)</button>
+        <button class="btn-score btn-wicket" onclick="triggerWicketAnimation()">Wicket (Out & Swap Batter)</button>
       </div>
+    </div>
+
+    <div id="wicketAnimation">
+      <div class="stump left"></div>
+      <div class="stump middle"></div>
+      <div class="stump right"></div>
+      <div class="bail left"></div>
+      <div class="bail right"></div>
     </div>
 
     <div class="controls">
@@ -317,13 +429,27 @@
       return rawInput.split(',').map(p => p.trim()).filter(p => p.length > 0);
     }
 
+    function addScoreChangeClass() {
+      const sb = document.getElementById('scoreboard');
+      sb.classList.add('score-change');
+      setTimeout(() => sb.classList.remove('score-change'), 300);
+    }
+
+    function updateScoreboard(reason) {
+      document.getElementById('scoreDisplay').innerText = `${runs} - ${wickets}`;
+      if (reason === 'six') {
+          triggerConfetti();
+      }
+      addScoreChangeClass();
+    }
+
     function generateNewMatch() {
       playersList = getPlayersFromInput();
       if (playersList.length === 0) return alert('Please enter player names.');
 
       runs = 0;
       wickets = 0;
-      updateScoreboard();
+      updateScoreboard('new-match');
 
       const roles = ['Batter', 'Runner', 'Bowler', 'Wicket Keeper', 'Fielder'];
       const shuffledRoles = shuffle(roles);
@@ -336,7 +462,15 @@
       currentBowlingList = shuffle(playersList);
       currentBowlerIndex = 0;
 
-      renderTableAndTrackers();
+      // Animate table shuffle
+      const rows = document.querySelectorAll('#lineupTable tr');
+      rows.forEach(row => row.classList.add('shuffling'));
+      
+      setTimeout(() => {
+          renderTableAndTrackers();
+          const newRows = document.querySelectorAll('#lineupTable tr');
+          newRows.forEach(row => row.classList.remove('shuffling'));
+      }, 500);
     }
 
     function updateTeamOnly() {
@@ -345,7 +479,6 @@
 
       playersList = updatedNames;
 
-      // Retain existing roles or assign 'Fielder' to new additions
       const roles = ['Batter', 'Runner', 'Bowler', 'Wicket Keeper', 'Fielder'];
       playersList.forEach((name, index) => {
         if (!rolesMap[name]) {
@@ -353,7 +486,6 @@
         }
       });
 
-      // Keep bowling order intact, append new players to end
       currentBowlingList = currentBowlingList.filter(name => playersList.includes(name));
       playersList.forEach(name => {
         if (!currentBowlingList.includes(name)) {
@@ -397,16 +529,63 @@
 
     function addRuns(amount) {
       runs += amount;
-      updateScoreboard();
+      updateScoreboard(amount === 6 ? 'six' : 'run');
     }
 
-    function addWicket() {
-      wickets += 1;
-      updateScoreboard();
+    function triggerWicketAnimation() {
+        const wicketAnim = document.getElementById('wicketAnimation');
+        wicketAnim.style.display = 'block';
+        wicketAnim.classList.add('breaking');
+
+        // Reset and execute core player out logic after animation
+        setTimeout(() => {
+            playerOut();
+            wicketAnim.classList.remove('breaking');
+            wicketAnim.style.display = 'none';
+        }, 1200); // slightly longer than animation
     }
 
-    function updateScoreboard() {
-      document.getElementById('scoreDisplay').innerText = `${runs} - ${wickets}`;
+    function playerOut() {
+      // 1. Reset score and wickets
+      runs = 0;
+      wickets = 0;
+      updateScoreboard('wicket');
+
+      if (currentBowlingList.length === 0) return;
+
+      const newBatter = currentBowlingList[currentBowlerIndex];
+
+      // Find current batter and give them a fielder role
+      for (let p in rolesMap) {
+        if (rolesMap[p] === 'Batter') {
+          rolesMap[p] = 'Fielder';
+        }
+      }
+
+      // Assign current bowler as the new Batter
+      rolesMap[newBatter] = 'Batter';
+
+      // Advance bowler rotation to the next player
+      currentBowlerIndex = (currentBowlerIndex + 1) % currentBowlingList.length;
+
+      // Update UI
+      renderTableAndTrackers();
+    }
+
+    function triggerConfetti() {
+        for(let i=0; i<30; i++) {
+            createConfettiPiece();
+        }
+    }
+
+    function createConfettiPiece() {
+        const confetti = document.createElement('div');
+        confetti.className = 'confetti';
+        confetti.style.left = Math.random() * 100 + 'vw';
+        confetti.style.backgroundColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+        confetti.style.animation = `confetti-fall ${Math.random() * 2 + 1}s ease-out forwards`;
+        document.body.appendChild(confetti);
+        setTimeout(() => confetti.remove(), 3000);
     }
 
     function updateTracker() {
